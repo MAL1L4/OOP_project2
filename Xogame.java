@@ -1,5 +1,8 @@
 import javax.swing.*;
+import javax.swing.border.Border;
 import java.awt.*;
+import java.util.ArrayDeque;
+import java.util.Deque;
 
 class xo {
     idenfier ident;
@@ -8,6 +11,10 @@ class xo {
 
 enum idenfier {
     X, O;
+
+    idenfier other() {
+        return this == X ? O : X;
+    }
 }
 
 enum size {
@@ -15,56 +22,69 @@ enum size {
 }
 
 class Board {
-    xo[][] board; // ประกาศ array 2 มิติ
-    int countX;
-    int countO;
-    int countEmpty;
+    // แต่ละช่องเป็น stack ของหมาก (ตัวบนสุด = ตัวที่เห็น)
+    Deque<xo>[][] board;
 
-    // Constructor ของ Board เพื่อกำหนดขนาด 3x3
+    @SuppressWarnings("unchecked")
     public Board() {
-        this.board = new xo[3][3]; // จองขนาดบอร์ดเป็น 3x3
-        this.countEmpty = 9;       // เริ่มต้นมีช่องว่าง 9 ช่อง
-        this.countX = 0;
-        this.countO = 0;
-    }
-
-    // ---------- ส่วนที่เพิ่มเพื่อให้ GUI ตรวจผลเกมได้ ----------
-    private idenfier at(int r, int c) {
-        return board[r][c] == null ? null : board[r][c].ident;
-    }
-
-    private boolean line(idenfier a, idenfier b, idenfier c) {
-        return a != null && a == b && b == c;
-    }
-
-    /** คืนผู้ชนะ (X หรือ O) ถ้ายังไม่มีคืน null */
-    public idenfier winner() {
-        for (int i = 0; i < 3; i++) {
-            if (line(at(i, 0), at(i, 1), at(i, 2))) return at(i, 0); // แนวนอน
-            if (line(at(0, i), at(1, i), at(2, i))) return at(0, i); // แนวตั้ง
+        this.board = new Deque[3][3];
+        for (int r = 0; r < 3; r++) {
+            for (int c = 0; c < 3; c++) {
+                board[r][c] = new ArrayDeque<>();
+            }
         }
-        if (line(at(0, 0), at(1, 1), at(2, 2))) return at(0, 0);     // แนวทแยง
-        if (line(at(0, 2), at(1, 1), at(2, 0))) return at(1, 1);
-        return null;
     }
 
-    public boolean isFull() {
-        for (int r = 0; r < 3; r++)
-            for (int c = 0; c < 3; c++)
-                if (board[r][c] == null) return false;
-        return true;
+    /** หมากตัวบนสุดของช่อง (null ถ้าช่องว่าง) */
+    public xo top(int r, int c) {
+        return board[r][c].peek();
+    }
+
+    /** วางได้ถ้าช่องว่าง หรือหมากที่จะวางใหญ่กว่าตัวบนสุด */
+    public boolean canPlace(xo piece, int r, int c) {
+        xo t = top(r, c);
+        return t == null || piece.size.ordinal() > t.size.ordinal();
+    }
+
+    public void place(xo piece, int r, int c) {
+        board[r][c].push(piece);
+    }
+
+    /** หยิบหมากตัวบนสุดออกจากช่อง */
+    public xo lift(int r, int c) {
+        return board[r][c].pop();
+    }
+
+    private idenfier at(int r, int c) {
+        xo t = top(r, c);
+        return t == null ? null : t.ident;
+    }
+
+    private boolean line(idenfier id, idenfier a, idenfier b, idenfier c) {
+        return a == id && b == id && c == id;
+    }
+
+    /** ฝั่ง id เรียงตัวบนสุดครบ 3 ช่องหรือไม่ */
+    public boolean hasWon(idenfier id) {
+        for (int i = 0; i < 3; i++) {
+            if (line(id, at(i, 0), at(i, 1), at(i, 2))) return true; // แนวนอน
+            if (line(id, at(0, i), at(1, i), at(2, i))) return true; // แนวตั้ง
+        }
+        return line(id, at(0, 0), at(1, 1), at(2, 2))                // แนวทแยง
+                || line(id, at(0, 2), at(1, 1), at(2, 0));
     }
 }
 
-// UI แบบ Console (ของเดิม)
+// UI แบบ Console (ของเดิม ปรับให้แสดงตัวบนสุดและขนาด)
 class UI {
     public void displayBoard(Board board) {
         for (int i = 0; i < 3; i++) {
             for (int j = 0; j < 3; j++) {
-                if (board.board[i][j] == null) {
-                    System.out.print("[ ]");
+                xo t = board.top(i, j);
+                if (t == null) {
+                    System.out.print("[  ]");
                 } else {
-                    System.out.print("[" + board.board[i][j].ident + "]");
+                    System.out.print("[" + t.ident + (t.size.ordinal() + 1) + "]");
                 }
             }
             System.out.println();
@@ -73,26 +93,61 @@ class UI {
 }
 
 class player {
-    int[] count = {2, 2, 2};
+    int[] count = {2, 2, 2}; // small, middle, large ที่เหลือนอกกระดาน
     idenfier ident;
-    Board board;   // เก็บ reference ไว้
+    Board board;
 
     public player(idenfier ident, Board board) {
         this.ident = ident;
         this.board = board;
     }
 
-    public boolean placeNew(size s, int row, int col) {
-        if (count[s.ordinal()] == 0) return false;       // หมากขนาดนี้หมดแล้ว
-        if (board.board[row][col] != null) return false; // (เวอร์ชันนี้ยังไม่รองรับการซ้อน)
-
+    private xo makePiece(size s) {
         xo piece = new xo();
         piece.ident = this.ident;
         piece.size = s;
+        return piece;
+    }
 
-        board.board[row][col] = piece;
+    /** วางหมากใหม่ได้ไหม (ยังเหลือ และวางลงช่องว่าง/ทับตัวที่เล็กกว่าได้) */
+    public boolean canPlaceNew(size s, int row, int col) {
+        if (count[s.ordinal()] == 0) return false;
+        return board.canPlace(makePiece(s), row, col);
+    }
+
+    public boolean placeNew(size s, int row, int col) {
+        if (!canPlaceNew(s, row, col)) return false;
+        board.place(makePiece(s), row, col);
         count[s.ordinal()]--;
         return true;
+    }
+
+    /** ย้ายหมากตัวบนสุดของตัวเองจาก (fr,fc) ไป (tr,tc) ได้ไหม */
+    public boolean canMove(int fr, int fc, int tr, int tc) {
+        if (fr == tr && fc == tc) return false;
+        xo piece = board.top(fr, fc);
+        if (piece == null || piece.ident != ident) return false;
+        return board.canPlace(piece, tr, tc);
+    }
+
+    /** มีตาเดินที่ทำได้อย่างน้อย 1 อย่างไหม */
+    public boolean hasAnyMove() {
+        for (size s : size.values()) {
+            for (int r = 0; r < 3; r++)
+                for (int c = 0; c < 3; c++)
+                    if (canPlaceNew(s, r, c)) return true;
+        }
+        for (int fr = 0; fr < 3; fr++)
+            for (int fc = 0; fc < 3; fc++)
+                for (int tr = 0; tr < 3; tr++)
+                    for (int tc = 0; tc < 3; tc++)
+                        if (canMove(fr, fc, tr, tc)) return true;
+        return false;
+    }
+
+    public boolean hasSupply() {
+        for (int n : count) if (n > 0) return true;
+        return false;
     }
 }
 
@@ -103,12 +158,17 @@ class GameGUI {
     private player playerO;
     private player current;
     private size selectedSize;
+    private boolean placeMode;   // true = วางหมากใหม่, false = ย้ายหมาก
+    private int fromR, fromC;    // ช่องที่เลือกไว้ตอนย้าย (-1 = ยังไม่เลือก)
     private boolean gameOver;
 
-    private final JFrame frame = new JFrame("XO Game");
+    private final JFrame frame = new JFrame("GobblePets");
     private final JButton[][] cells = new JButton[3][3];
     private final JToggleButton[] sizeButtons = new JToggleButton[3];
+    private final JToggleButton placeBtn = new JToggleButton("วางหมากใหม่");
+    private final JToggleButton moveBtn = new JToggleButton("ย้ายหมาก");
     private final JLabel status = new JLabel("", SwingConstants.CENTER);
+    private Border defaultBorder;
 
     public GameGUI() {
         buildUI();
@@ -123,7 +183,7 @@ class GameGUI {
         frame.setLayout(new BorderLayout(8, 8));
 
         // ด้านบน: สถานะ
-        status.setFont(new Font("SansSerif", Font.BOLD, 18));
+        status.setFont(new Font("SansSerif", Font.BOLD, 16));
         status.setBorder(BorderFactory.createEmptyBorder(10, 10, 0, 10));
         frame.add(status, BorderLayout.NORTH);
 
@@ -133,7 +193,7 @@ class GameGUI {
         for (int r = 0; r < 3; r++) {
             for (int c = 0; c < 3; c++) {
                 JButton b = new JButton("");
-                b.setPreferredSize(new Dimension(100, 100));
+                b.setPreferredSize(new Dimension(110, 110));
                 b.setFocusPainted(false);
                 final int row = r, col = c;
                 b.addActionListener(e -> onCellClicked(row, col));
@@ -141,24 +201,39 @@ class GameGUI {
                 grid.add(b);
             }
         }
+        defaultBorder = cells[0][0].getBorder();
         frame.add(grid, BorderLayout.CENTER);
 
-        // ล่าง: เลือกขนาดหมาก + ปุ่มเริ่มใหม่
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
-        ButtonGroup group = new ButtonGroup();
+        // ล่าง: โหมด + เลือกขนาด + เริ่มใหม่
+        JPanel bottom = new JPanel(new GridLayout(2, 1, 4, 4));
+
+        JPanel modeRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
+        ButtonGroup modeGroup = new ButtonGroup();
+        modeGroup.add(placeBtn);
+        modeGroup.add(moveBtn);
+        placeBtn.addActionListener(e -> setMode(true));
+        moveBtn.addActionListener(e -> setMode(false));
+        modeRow.add(placeBtn);
+        modeRow.add(moveBtn);
+        frame.add(bottom, BorderLayout.SOUTH);
+
+        JPanel sizeRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
+        ButtonGroup sizeGroup = new ButtonGroup();
         size[] all = size.values();
         for (int i = 0; i < all.length; i++) {
             final size s = all[i];
             JToggleButton tb = new JToggleButton(s.toString());
             tb.addActionListener(e -> selectedSize = s);
             sizeButtons[i] = tb;
-            group.add(tb);
-            bottom.add(tb);
+            sizeGroup.add(tb);
+            sizeRow.add(tb);
         }
         JButton reset = new JButton("New Game");
         reset.addActionListener(e -> newGame());
-        bottom.add(reset);
-        frame.add(bottom, BorderLayout.SOUTH);
+        sizeRow.add(reset);
+
+        bottom.add(modeRow);
+        bottom.add(sizeRow);
     }
 
     private void newGame() {
@@ -168,43 +243,131 @@ class GameGUI {
         current = playerX;
         selectedSize = size.small;
         sizeButtons[0].setSelected(true);
+        placeMode = true;
+        placeBtn.setSelected(true);
+        fromR = -1;
+        fromC = -1;
         gameOver = false;
         refresh();
-        status.setText("Turn: " + current.ident);
+        status.setText("Turn: " + current.ident + " — เลือกขนาดแล้วคลิกช่องเพื่อวางหมาก");
+    }
+
+    private void setMode(boolean place) {
+        placeMode = place;
+        fromR = -1;
+        fromC = -1;
+        refresh();
+        status.setText("Turn: " + current.ident + (place
+                ? " — เลือกขนาดแล้วคลิกช่องเพื่อวางหมาก"
+                : " — คลิกหมากของคุณที่อยู่บนสุดเพื่อย้าย"));
     }
 
     private void onCellClicked(int r, int c) {
         if (gameOver) return;
 
-        if (!current.placeNew(selectedSize, r, c)) {
-            status.setText("วางไม่ได้! (ช่องไม่ว่าง หรือหมากขนาดนี้หมดแล้ว)");
+        if (placeMode) {
+            if (!current.placeNew(selectedSize, r, c)) {
+                status.setText("วางไม่ได้! ต้องวางในช่องว่าง หรือทับหมากที่เล็กกว่าเท่านั้น");
+                return;
+            }
+            if (board.hasWon(current.ident)) {
+                finish(current.ident + " เรียงครบ 3 ตัว ชนะ!");
+                return;
+            }
+            nextTurn();
             return;
         }
 
-        idenfier w = board.winner();
-        if (w != null) {
-            gameOver = true;
+        // โหมดย้ายหมาก
+        if (fromR < 0) {
+            xo t = board.top(r, c);
+            if (t == null || t.ident != current.ident) {
+                status.setText("ต้องเลือกหมากของคุณที่อยู่บนสุดของช่อง");
+                return;
+            }
+            fromR = r;
+            fromC = c;
             refresh();
-            status.setText("🎉 " + w + " ชนะ!");
-            return;
-        }
-        if (board.isFull()) {
-            gameOver = true;
-            refresh();
-            status.setText("เสมอ!");
+            status.setText("เลือกช่องปลายทาง (คลิกช่องเดิมซ้ำเพื่อยกเลิก)");
             return;
         }
 
+        if (r == fromR && c == fromC) {
+            fromR = -1;
+            fromC = -1;
+            refresh();
+            status.setText("Turn: " + current.ident + " — คลิกหมากของคุณที่อยู่บนสุดเพื่อย้าย");
+            return;
+        }
+        if (!current.canMove(fromR, fromC, r, c)) {
+            status.setText("ย้ายไปช่องนี้ไม่ได้! ต้องเป็นช่องว่าง หรือทับหมากที่เล็กกว่า");
+            return;
+        }
+        doMove(fromR, fromC, r, c);
+    }
+
+    private void doMove(int fr, int fc, int tr, int tc) {
+        // 1) ยกหมากออก -> ถ้าตัวด้านล่างที่เผยออกมาทำให้ฝั่งตรงข้ามเรียงครบ 3 ฝั่งตรงข้ามชนะทันที
+        xo piece = board.lift(fr, fc);
+        idenfier opp = current.ident.other();
+        if (board.hasWon(opp)) {
+            fromR = -1;
+            fromC = -1;
+            finish(current.ident + " ยกหมากออก ทำให้ " + opp + " เรียงครบ 3 ตัว " + opp + " ชนะ!");
+            return;
+        }
+
+        // 2) วางที่ช่องใหม่ แล้วเช็กว่าเราชนะหรือไม่
+        board.place(piece, tr, tc);
+        if (board.hasWon(current.ident)) {
+            fromR = -1;
+            fromC = -1;
+            finish(current.ident + " เรียงครบ 3 ตัว ชนะ!");
+            return;
+        }
+        nextTurn();
+    }
+
+    private void finish(String message) {
+        gameOver = true;
+        refresh();
+        status.setText("🎉 " + message);
+    }
+
+    private void nextTurn() {
         current = (current == playerX) ? playerO : playerX;
+        fromR = -1;
+        fromC = -1;
+
+        if (!current.hasAnyMove()) {
+            idenfier skipped = current.ident;
+            current = (current == playerX) ? playerO : playerX;
+            if (!current.hasAnyMove()) {
+                gameOver = true;
+                refresh();
+                status.setText("เสมอ! ไม่มีใครเดินได้แล้ว");
+                return;
+            }
+            refresh();
+            status.setText(skipped + " ไม่มีตาเดินที่ทำได้ ข้ามตา — Turn: " + current.ident);
+            return;
+        }
+
         refresh();
         status.setText("Turn: " + current.ident);
     }
 
-    /** วาดกระดานและปุ่มเลือกขนาดใหม่ตามสถานะปัจจุบัน */
+    /** วาดกระดานและปุ่มต่าง ๆ ตามสถานะปัจจุบัน */
     private void refresh() {
+        // ถ้าไม่เหลือหมากนอกกระดานแล้ว ต้องใช้โหมดย้ายเท่านั้น
+        if (!current.hasSupply() && placeMode) {
+            placeMode = false;
+            moveBtn.setSelected(true);
+        }
+
         for (int r = 0; r < 3; r++) {
             for (int c = 0; c < 3; c++) {
-                xo p = board.board[r][c];
+                xo p = board.top(r, c);
                 JButton b = cells[r][c];
                 if (p == null) {
                     b.setText("");
@@ -219,17 +382,30 @@ class GameGUI {
                         default:     fontSize = 68; break;
                     }
                     b.setFont(new Font("SansSerif", Font.BOLD, fontSize));
-                    b.setToolTipText(p.ident + " (" + p.size + ")");
+
+                    // tooltip แสดงหมากที่ซ้อนกันอยู่ (บนสุด -> ล่างสุด)
+                    StringBuilder sb = new StringBuilder("บนสุด→ล่างสุด: ");
+                    for (xo q : board.board[r][c]) {
+                        sb.append(q.ident).append('(').append(q.size).append(") ");
+                    }
+                    b.setToolTipText(sb.toString());
                 }
+                // ไฮไลต์ช่องที่เลือกไว้เพื่อย้าย
+                b.setBorder((r == fromR && c == fromC)
+                        ? BorderFactory.createLineBorder(new Color(255, 140, 0), 4)
+                        : defaultBorder);
             }
         }
 
-        // อัปเดตปุ่มเลือกขนาด ให้แสดงจำนวนที่เหลือของผู้เล่นคนปัจจุบัน
+        placeBtn.setEnabled(current.hasSupply() && !gameOver);
+        moveBtn.setEnabled(!gameOver);
+
+        // ปุ่มเลือกขนาด: แสดงจำนวนที่เหลือ และใช้ได้เฉพาะโหมดวางหมากใหม่
         size[] all = size.values();
         for (int i = 0; i < all.length; i++) {
             int left = current.count[i];
             sizeButtons[i].setText(all[i] + " (" + left + ")");
-            sizeButtons[i].setEnabled(left > 0 && !gameOver);
+            sizeButtons[i].setEnabled(placeMode && left > 0 && !gameOver);
         }
         // ถ้าขนาดที่เลือกอยู่หมดแล้ว ให้เลื่อนไปขนาดที่ยังเหลือ
         if (current.count[selectedSize.ordinal()] == 0) {
